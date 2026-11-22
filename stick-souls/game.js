@@ -119,9 +119,12 @@ function joint(ax, ay, tx, ty, l1, l2, bend) {
   if (d > m) { dx *= m / d; dy *= m / d; d = m; }
   if (d < 0.01) d = 0.01;
   const base = Math.atan2(dy, dx);
-  const c = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
-  const a = base + Math.acos(c) * bend;
-  return [ax + Math.cos(a) * l1, ay + Math.sin(a) * l1, ax + dx, ay + dy];
+  const a0 = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1));
+  // The two exact solutions mirror each other across the shoulder→hand line. Blending between
+  // them moves the elbow as if it turned in depth, so neither bone ever stretches.
+  const jx = ax + Math.cos(base + a0) * l1, jy = ay + Math.sin(base + a0) * l1;
+  const mx = ax + Math.cos(base) * l1 * Math.cos(a0), my = ay + Math.sin(base) * l1 * Math.cos(a0);
+  return [mx + (jx - mx) * bend, my + (jy - my) * bend, ax + dx, ay + dy];
 }
 function solve(R, p, X, Y, face) {
   const L = p.lean * D2R, HA = (p.lean + p.head) * D2R;
@@ -189,6 +192,106 @@ function hitTest(a, b, r, caps) {
   return null;
 }
 
+// ---------------------------------------------------------------- secondary motion (visual only)
+// Layered on top of the animation pose every step, just before drawing. Weapon hit checks use the
+// animation pose directly, and the only layer that can move a weapon (torso lean) is limited to
+// walking and fades out within 0.12s of an action starting, before any hit window opens.
+const PC = { walk: T.p.walk, leanV: 5, lean: [11, 0.5], head: [26, 0.55], thr: 9, reach: 26, dur: 0.11, lift: 6 };
+const BC = { walk: 80, leanV: 3, lean: [6, 0.45], head: [16, 0.5], arm: [9, 0.35, 0.12], thr: 24, reach: 70, dur: 0.2, lift: 16 };
+function newMotion(ch) {
+  Object.assign(ch, {
+    dpose: {}, feet: [{ off: 0, step: null }, { off: 0, step: null }],
+    sx: ch.x, sy: ch.y, svx: 0, svy: 0, lastFace: ch.face, lw: 0,
+    sLean: { x: 0, v: 0 }, sHead: { x: null, v: 0 }, sArmX: { x: 0, v: 0 }, sArmY: { x: 0, v: 0 },
+  });
+}
+// damped spring: w = stiffness (rad/s), z = damping ratio (below 1 overshoots a little)
+function spring(s, target, w, z, dt) {
+  s.v += (w * w * (target - s.x) - 2 * z * w * s.v) * dt;
+  s.x += s.v * dt;
+}
+// Walk cycle with a planted stance half: the foot moves back exactly as fast as the body moves
+// forward, so it stays still on the ground, then lifts and swings forward on an arc.
+function gait(ph, S, H) {
+  const p = ph - Math.floor(ph);
+  if (p < 0.5) return [S - 4 * S * p, 0];
+  const u = (p - 0.5) * 2;
+  return [-S + 2 * S * EASE.io(u), H * Math.sin(Math.PI * u)];
+}
+function startStep(f, cfg) {
+  const k = Math.abs(f.off) / cfg.thr;
+  f.step = { from: f.off, t: 0, dur: cfg.dur * clamp(0.6 + 0.25 * k, 0.7, 1.4), h: clamp(0.4 + 0.4 * k, 0.5, 1.4) };
+}
+// Feet on the ground ignore root motion (attack steps, lunges, knockback) and take a quick
+// arcing step to catch up once they fall too far behind, so they never skate.
+function plantFeet(ch, cfg, dt, mode, dx, p) {
+  const K = [['f1x', 'f1y'], ['f2x', 'f2y']];
+  for (let i = 0; i < 2; i++) {
+    const f = ch.feet[i], other = ch.feet[1 - i];
+    let lift = 0;
+    if (f.step) {
+      f.step.t += dt;
+      const u = clamp(f.step.t / f.step.dur, 0, 1);
+      f.off = f.step.from * (1 - EASE.io(u));
+      lift = cfg.lift * f.step.h * Math.sin(Math.PI * u);
+      if (u >= 1) { f.step = null; f.off = 0; }
+    } else if (mode === 'free' || p[K[i][1]] < -2) {
+      f.off *= Math.exp(-18 * dt);
+    } else if (mode === 'lock') {
+      f.off -= dx;
+      if (Math.abs(f.off) > cfg.thr && (!other.step || Math.abs(f.off) > cfg.reach)) startStep(f, cfg);
+    } else if (Math.abs(f.off) > 1.5) {
+      if (!other.step) startStep(f, cfg);
+    } else f.off = 0;
+    p[K[i][0]] += ch.face * f.off;
+    p[K[i][1]] -= lift;
+  }
+}
+// mode: 'gait' (walking/standing), 'lock' (grounded action), 'free' (airborne, rolling, knocked down)
+function finalize(ch, cfg, dt, mode) {
+  const p = copyPose(ch.pose, ch.dpose);
+  const dx = ch.x - ch.sx, dy = ch.y - ch.sy;
+  ch.sx = ch.x; ch.sy = ch.y;
+  const vx = dx / dt, vy = dy / dt;
+  const ax = clamp((vx - ch.svx) / dt, -15000, 15000), ay = clamp((vy - ch.svy) / dt, -15000, 15000);
+  ch.svx = vx; ch.svy = vy;
+  if (ch.face !== ch.lastFace) {
+    ch.lastFace = ch.face;
+    for (const f of ch.feet) { f.off = 0; f.step = null; }
+    ch.sArmX.x = ch.sArmX.v = 0;
+  }
+  const free = mode === 'free' || Math.abs(p.rot) > 0.01;
+  const al = ax * ch.face;
+  // torso settles into walking speed and pitches a little on starts and stops
+  if (mode === 'gait') {
+    spring(ch.sLean, clamp(cfg.leanV * vx * ch.face / cfg.walk - 0.0035 * al, -9, 9), cfg.lean[0], cfg.lean[1], dt);
+    ch.lw = 1;
+  } else ch.lw = Math.max(0, ch.lw - dt / 0.12);
+  p.lean += ch.sLean.x * ch.lw;
+  // head trails fast torso moves slightly, then settles
+  const hT = p.lean + p.head;
+  if (free || ch.sHead.x === null) { ch.sHead.x = hT; ch.sHead.v = 0; }
+  else {
+    spring(ch.sHead, hT, cfg.head[0], cfg.head[1], dt);
+    ch.sHead.x = clamp(ch.sHead.x, hT - 22, hT + 22);
+  }
+  p.head = ch.sHead.x - p.lean;
+  // a free (non-weapon) arm swings against the body's acceleration
+  if (cfg.arm) {
+    if (free) {
+      ch.sArmX.x *= Math.exp(-10 * dt); ch.sArmY.x *= Math.exp(-10 * dt); ch.sArmX.v = ch.sArmY.v = 0;
+    } else {
+      const [w, z, gain] = cfg.arm;
+      ch.sArmX.v -= al * gain * dt; ch.sArmY.v -= ay * gain * dt;
+      spring(ch.sArmX, 0, w, z, dt); spring(ch.sArmY, 0, w, z, dt);
+      ch.sArmX.x = clamp(ch.sArmX.x, -22, 22); ch.sArmY.x = clamp(ch.sArmY.x, -22, 22);
+    }
+    p.bx += ch.sArmX.x; p.by += ch.sArmY.x;
+  }
+  plantFeet(ch, cfg, dt, free ? 'free' : mode, dx, p);
+  return p;
+}
+
 // ---------------------------------------------------------------- player rig + moves
 const PR = { thigh: 23, shin: 23, spine: 31, neck: 5, headR: 8.5, upper: 17.5, fore: 17.5,
   grip: 11, pommel: 14, wlen: 76, pvx: 12, pvy: -26, line: 4 };
@@ -211,6 +314,7 @@ const PA = {
       [0.22, { ax: 0, ay: -10, w: -150, lean: -3, hy: -43, head: -2, f1x: 15, f2x: -14 }, 'out'],
       [0.33, { ax: 26, ay: 20, w: 32, lean: 22, hy: -37, head: -8, f1x: 24, f2x: -15 }, 'in'],
       [0.45, { ax: 24, ay: 18, w: 36, lean: 24 }, 'out'],
+      [0.63, { ...GUARD, lean: 5, hy: -43, ay: 20, w: -45 }, 'out'],
       [0.74, GUARD, 'io'],
     ]),
     hits: [{ t0: 0.23, t1: 0.36, dmg: 'dmgL1', poise: 'poiseL' }],
@@ -224,6 +328,7 @@ const PA = {
       [0.17, { ax: 8, ay: 22, w: 36, lean: 16, hy: -38, head: -6, f1x: 18, f2x: -15 }, 'out'],
       [0.29, { ax: 24, ay: -22, w: -78, lean: 10, hy: -45, head: -8, f1x: 27, f2x: -12 }, 'in'],
       [0.43, { ax: 16, ay: -28, w: -100, lean: 4 }, 'out'],
+      [0.62, { ...GUARD, lean: 10, ay: 24, w: -31 }, 'out'],
       [0.72, GUARD, 'io'],
     ]),
     hits: [{ t0: 0.18, t1: 0.31, dmg: 'dmgL2', poise: 'poiseL' }],
@@ -244,6 +349,7 @@ const PA = {
       [0.11, { ax: 28, ay: 18, w: 35, lean: 30, hy: -33, head: -2, f1x: 30, f2x: -16 }, 'in'],
       [0.20, { lean: 31, hy: -32 }, 'out'],
       [0.48, { lean: 30 }, 'lin'],
+      [0.67, { ...GUARD, lean: 4, hy: -43, w: -46 }, 'out'],
       [0.78, GUARD, 'io'],
     ]),
     hits: [{ t0: 0, t1: 0.13, heavy: true }],
@@ -317,6 +423,7 @@ const BA = {
       [1.16, { hy: -86, lean: 38, head: -20, ax: 70, ay: 62, w: 34, bx: 50, by: 40, f1x: 70, f2x: -44 }, 'in'],
       [1.26, { w: 40, ay: 64 }, 'out'],
       [2.0, { w: 38, lean: 34, hy: -90 }, 'lin'],
+      [2.25, BASE, 'out', { lean: 17, hy: -104, w: 48, ay: 62 }],
       [2.4, BASE, 'io'],
     ]),
     hits: [{ t0: 1.02, t1: 1.2, dmg: 30, knock: 'down' }],
@@ -332,6 +439,7 @@ const BA = {
       [0.68, { ay: 82, w: 142 }, 'lin'],
       [0.84, { ax: 60, ay: -40, w: -55, lean: 10, hy: -100, head: -10, f1x: 54, ea: 1 }, 'in'],
       [0.96, { ax: 50, ay: -62, w: -82 }, 'out'],
+      [1.55, BASE, 'out', { lean: 29, hy: -96, w: 68, ay: 72 }],
       [1.75, BASE, 'io'],
     ]),
     hits: [{ t0: 0.69, t1: 0.9, dmg: 22, knock: 'down' }],
@@ -346,6 +454,7 @@ const BA = {
       [0.84, { ax: -40, ay: 16 }, 'lin'],
       [1.02, { hy: -80, lean: 40, head: -28, ax: 95, ay: 40, w: 18, ea: 1, bx: -10, by: 60, f1x: 80, f2x: -60 }, 'in'],
       [1.2, { ax: 100, ay: 44, w: 22 }, 'out'],
+      [1.9, BASE, 'out', { lean: 18, hy: -104 }],
       [2.1, BASE, 'io'],
     ]),
     hits: [{ t0: 0.88, t1: 1.1, dmg: 24, knock: 'down' }],
@@ -362,6 +471,7 @@ const BA = {
       [1.2, { hy: -80, lean: 38, head: -20, ax: 70, ay: 62, w: 396, bx: 50, by: 40, f1x: 66, f1y: 0, f2x: -44, f2y: 0 }, 'in'],
       [1.3, { w: 400, ay: 64 }, 'out'],
       [2.05, { w: 398, lean: 34, hy: -86 }, 'lin'],
+      [2.3, BASE, 'out', { lean: 17, hy: -104, w: 408, ay: 62 }],
       [2.45, BASE, 'io', { w: 418 }],
     ]),
     hits: [{ t0: 1.04, t1: 1.22, dmg: 30, knock: 'down' }],
@@ -376,6 +486,7 @@ const BA = {
       [0.55, { hy: -108, lean: 8, head: -8, ax: 20, ay: 40, w: 70, bx: 56, by: -14, f1x: 34, f1y: -66, f2x: -34 }, 'out'],
       [0.68, { f1y: -70, hy: -110 }, 'lin'],
       [0.77, { hy: -90, lean: 28, head: -18, f1x: 38, f1y: 0, ax: 28, ay: 62, bx: 50, by: 44 }, 'in'],
+      [1.28, BASE, 'out', { lean: 19, hy: -104 }],
       [1.45, BASE, 'io'],
     ]),
     events: [{ t: 0.76, ev: 'stomp' }],
@@ -427,14 +538,16 @@ function reset() {
   Object.assign(P, {
     x: 480, y: 0, vx: 0, face: 1, hp: T.p.hp, hpGhost: T.p.hp, ghostT: 0, st: T.p.st, stDelay: 0,
     flasks: T.p.flasks, state: 'loco', def: null, t: 0, start: null, pose: copyPose(PB, {}),
-    moveBlend: 0, walkPh: 0, flash: 0, charge: 0, holdT: 0, hitMask: 0, swingId: 0,
+    moveBlend: 0, walkP: 0, flash: 0, charge: 0, holdT: 0, hitMask: 0, swingId: 0,
   });
   Object.assign(B, {
     x: 1000, y: 0, vx: 0, face: -1, hp: T.b.hp, hpGhost: T.b.hp, ghostT: 0, poise: T.b.poise, poiseT: 0,
-    state: 'loco', def: null, t: 0, start: null, pose: copyPose(BB, {}), moveBlend: 0, walkPh: 0,
+    state: 'loco', def: null, t: 0, start: null, pose: copyPose(BB, {}), moveBlend: 0, walkP: 0,
     flash: 0, wait: 1.6, cd: { leap: 3, stomp: 0 }, last: [], queue: [], phase2: false, pending2: false,
     behindT: 0, hitMask: 0, adaptD: null, leapFrom: 0, leapTo: 0, swingId: 0,
   });
+  newMotion(P);
+  newMotion(B);
   P.S = solve(PR, P.pose, P.x, P.y, P.face);
   B.S = solve(BR, B.pose, B.x, B.y, B.face);
   B.caps = bossCaps(B.S);
@@ -578,7 +691,7 @@ function pStrike() {
   P.state = 'heavyStrike'; P.def = PA.heavyStrike; P.t = 0;
   P.start = copyPose(P.pose, {}); P.hitMask = 0; P.swingId++;
 }
-function toLoco() { P.state = 'loco'; P.def = null; P.moveBlend = 0; faceBoss(); }
+function toLoco() { P.state = 'loco'; P.def = null; P.moveBlend = 0; P.sLean.x = P.sLean.v = 0; faceBoss(); }
 
 // Start a player-chosen action. Returns false if it can't happen right now.
 function pDo(a) {
@@ -596,18 +709,16 @@ function pDo(a) {
 }
 
 function playerLoco(dt) {
-  const v = P.vx * P.face;
+  const v = P.vx * P.face, S = 15;
   P.moveBlend = approach(P.moveBlend, clamp(Math.abs(P.vx) / T.p.walk, 0, 1), dt * 7);
-  P.walkPh += v * dt * Math.PI / 26;
-  const m = P.moveBlend, s = Math.sin(P.walkPh), c = Math.cos(P.walkPh), p = copyPose(PB, P.pose);
-  p.f1x = lerp(PB.f1x, 4 + 13 * s, m);
-  p.f2x = lerp(PB.f2x, -2 - 13 * s, m);
-  p.f1y = -Math.max(0, c) * 9 * m;
-  p.f2y = -Math.max(0, -c) * 9 * m;
-  p.hy = PB.hy + Math.abs(s) * 2.5 * m + Math.sin(clock * 2.4) * 0.8 * (1 - m);
-  p.lean = PB.lean + (v >= 0 ? 4 : -3) * m;
-  p.ay = PB.ay + Math.sin(clock * 2.4 + 0.6) * 0.7 + Math.sin(P.walkPh * 2) * 1.2 * m;
-  p.w = PB.w + Math.sin(P.walkPh * 2) * 2 * m;
+  P.walkP += v * dt / (4 * S);
+  const m = P.moveBlend, p = copyPose(PB, P.pose);
+  const g1 = gait(P.walkP, S, 7), g2 = gait(P.walkP + 0.5, S, 7), q = P.walkP * 4 * Math.PI;
+  p.f1x = lerp(PB.f1x, 3 + g1[0], m); p.f1y = -g1[1] * m;
+  p.f2x = lerp(PB.f2x, -1 + g2[0], m); p.f2y = -g2[1] * m;
+  p.hy = PB.hy + (0.5 + 0.5 * Math.cos(q)) * 2.5 * m + Math.sin(clock * 2.4) * 0.8 * (1 - m);
+  p.ay = PB.ay + Math.sin(clock * 2.4 + 0.6) * 0.7 + Math.sin(q) * 1.2 * m;
+  p.w = PB.w + Math.sin(q) * 2 * m;
 }
 function holdPose() {
   const k = PA.heavyWind.an.ks;
@@ -669,37 +780,40 @@ function updatePlayer(dt) {
     holdPose();
     P.vx *= Math.exp(-8 * dt); P.x += P.vx * dt; clampP();
     if (!heavyHeld() || P.holdT >= T.p.chargeMax) pStrike();
-  } else {
-    const d = P.def, t0 = P.t;
-    P.t += dt;
-    const t1 = P.t, name = P.state;
-    P.vx *= Math.exp(-6.5 * dt);
-    P.x += P.vx * dt + P.face * rootMove(d, t0, t1, null);
-    clampP();
-    if (d.air) {
-      const u = clamp((t1 - d.air[0]) / (d.air[1] - d.air[0]), 0, 1);
-      P.y = -4 * d.air[2] * u * (1 - u);
-    } else P.y = 0;
-    sample(d.an, t1, P.start, P.pose);
-    P.S = solve(PR, P.pose, P.x, P.y, P.face);
-    if (d.events) for (const e of d.events) if (t0 < e.t && t1 >= e.t) pEvent(e.ev);
-    if (d.hits) pHits(d, t0, t1);
-    if (P.state !== name || name === 'dead') return;
-    if (name === 'heavyWind' && t1 >= d.an.dur) {
-      if (heavyHeld()) { P.state = 'heavyHold'; P.holdT = 0; } else pStrike();
-      return;
-    }
-    const b = buffered();
-    if (b) {
-      let ok = false;
-      if ((b === 'light' || b === 'heavy') && d.next && t1 >= d.chainAt) ok = pDo(b);
-      else if (b === 'roll' && d.rollAt != null && t1 >= d.rollAt) ok = pDo('roll');
-      else if (d.act != null && t1 >= d.act) ok = pDo(b);
-      if (ok) { input.buffer = null; return; }
-    }
-    if (t1 >= d.an.dur) toLoco();
-  }
+  } else playerAction(dt);
+  const mode = P.state === 'loco' ? 'gait'
+    : (P.state === 'roll' || P.state === 'down' || P.state === 'dead' || P.y < -1) ? 'free' : 'lock';
+  P.S = solve(PR, finalize(P, PC, dt, mode), P.x, P.y, P.face);
+}
+function playerAction(dt) {
+  const d = P.def, t0 = P.t;
+  P.t += dt;
+  const t1 = P.t, name = P.state;
+  P.vx *= Math.exp(-6.5 * dt);
+  P.x += P.vx * dt + P.face * rootMove(d, t0, t1, null);
+  clampP();
+  if (d.air) {
+    const u = clamp((t1 - d.air[0]) / (d.air[1] - d.air[0]), 0, 1);
+    P.y = -4 * d.air[2] * u * (1 - u);
+  } else P.y = 0;
+  sample(d.an, t1, P.start, P.pose);
   P.S = solve(PR, P.pose, P.x, P.y, P.face);
+  if (d.events) for (const e of d.events) if (t0 < e.t && t1 >= e.t) pEvent(e.ev);
+  if (d.hits) pHits(d, t0, t1);
+  if (P.state !== name || name === 'dead') return;
+  if (name === 'heavyWind' && t1 >= d.an.dur) {
+    if (heavyHeld()) { P.state = 'heavyHold'; P.holdT = 0; } else pStrike();
+    return;
+  }
+  const b = buffered();
+  if (b) {
+    let ok = false;
+    if ((b === 'light' || b === 'heavy') && d.next && t1 >= d.chainAt) ok = pDo(b);
+    else if (b === 'roll' && d.rollAt != null && t1 >= d.rollAt) ok = pDo('roll');
+    else if (d.act != null && t1 >= d.act) ok = pDo(b);
+    if (ok) { input.buffer = null; return; }
+  }
+  if (t1 >= d.an.dur) toLoco();
 }
 
 function hurtPlayer(dmg, knock, fromX) {
@@ -745,7 +859,7 @@ function bBegin(name) {
   if (d.atk) { B.last.unshift(name); B.last.length = Math.min(B.last.length, 3); }
 }
 function bLoco() {
-  B.state = 'loco'; B.def = null; B.moveBlend = 0;
+  B.state = 'loco'; B.def = null; B.moveBlend = 0; B.sLean.x = B.sLean.v = 0;
   B.wait = B.phase2 ? rand(0.25, 0.7) : rand(0.5, 1.1);
 }
 function pick(o) {
@@ -828,19 +942,18 @@ function hitBoss(h, hit) {
   if (!B.phase2 && B.hp <= T.b.hp * T.b.phase2At) B.pending2 = true;
 }
 function bossLoco(dt) {
-  const v = B.vx * B.face;
+  const v = B.vx * B.face, S = 30;
   B.moveBlend = approach(B.moveBlend, clamp(Math.abs(B.vx) / 80, 0, 1), dt * 4);
-  B.walkPh += v * dt * Math.PI / 60;
-  const m = B.moveBlend, s = Math.sin(B.walkPh), c = Math.cos(B.walkPh), p = copyPose(BB, B.pose);
-  p.f1x = lerp(BB.f1x, 10 + 30 * s, m);
-  p.f2x = lerp(BB.f2x, -14 - 30 * s, m);
-  p.f1y = -Math.max(0, c) * 20 * m;
-  p.f2y = -Math.max(0, -c) * 20 * m;
-  p.hy = BB.hy + Math.abs(s) * 5 * m + Math.sin(clock * 1.7) * 2 * (1 - m);
-  p.lean = BB.lean + Math.sin(clock * 1.7 + 0.4) * 1.5 + m * 3;
-  p.ay = BB.ay + Math.sin(B.walkPh * 2) * 3 * m + Math.sin(clock * 1.7) * 1.5;
-  p.w = BB.w + Math.sin(B.walkPh) * 4 * m;
-  p.by = BB.by + Math.sin(B.walkPh + 1) * 6 * m;
+  B.walkP += v * dt / (4 * S);
+  const m = B.moveBlend, p = copyPose(BB, B.pose);
+  const g1 = gait(B.walkP, S, 20), g2 = gait(B.walkP + 0.5, S, 20), q = B.walkP * 2 * Math.PI;
+  p.f1x = lerp(BB.f1x, 10 + g1[0], m); p.f1y = -g1[1] * m;
+  p.f2x = lerp(BB.f2x, -14 + g2[0], m); p.f2y = -g2[1] * m;
+  p.hy = BB.hy + (0.5 + 0.5 * Math.cos(2 * q)) * 5 * m + Math.sin(clock * 1.7) * 2 * (1 - m);
+  p.lean = BB.lean + Math.sin(clock * 1.7 + 0.4) * 1.5;
+  p.ay = BB.ay + Math.sin(2 * q) * 3 * m + Math.sin(clock * 1.7) * 1.5;
+  p.w = BB.w + Math.sin(q) * 4 * m;
+  p.by = BB.by + Math.sin(q + 1) * 6 * m;
 }
 
 function updateBoss(dt) {
@@ -898,7 +1011,8 @@ function updateBoss(dt) {
     }
   }
   B.x = clamp(B.x, T.arenaL + 70, T.arenaR - 70);
-  B.S = solve(BR, B.pose, B.x, B.y, B.face);
+  const mode = B.state === 'loco' ? 'gait' : (B.state === 'dead' || B.y < -1) ? 'free' : 'lock';
+  B.S = solve(BR, finalize(B, BC, dt, mode), B.x, B.y, B.face);
   B.caps = bossCaps(B.S);
 }
 
