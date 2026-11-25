@@ -54,7 +54,7 @@ const BA = {
       [2.1, BASE, 'io'],
     ]),
     hits: [{ t0: 0.88, t1: 1.1, dmg: 24, knock: 'down', guard: 35 }],
-    moves: [{ t0: 0.84, t1: 1.04, d: 240, e: 'out2', adapt: [170, 40, 280] }],
+    moves: [{ t0: 0.84, t1: 1.04, d: 240, e: 'out2', adapt: [170, 40, 320] }],
     commit: 0.72, act: 2.1, cancel: 1.4, atk: true,
   },
   // jump onto the player's position, club first, with a landing shockwave
@@ -203,7 +203,7 @@ function bBegin(name, finisher) {
 }
 function bLoco() {
   B.state = 'loco'; B.def = null; B.moveBlend = 0; B.sLean.x = B.sLean.v = 0;
-  B.wait = (B.phase2 ? rand(0.25, 0.7) : rand(0.5, 1.1)) * T.f.bossPause;
+  B.wait = (B.phase2 ? rand(0.1, 0.4) : rand(0.25, 0.6)) * T.f.bossPause;
 }
 function pick(o) {
   let s = 0;
@@ -227,13 +227,13 @@ function bossDecide() {
   if (d < 120 && B.cd.stomp <= 0) add('stomp', 2);
   if (d < 175) add('upswing', 3);
   if (d > 70 && d < 320) add('smash', 3);
-  if (d > 190 && d < 470) add('thrust', 2);
+  if (d > 190 && d < 520) add('thrust', 2);
   if (d > (B.phase2 ? 300 : 380) && B.cd.leap <= 0) add('leap', d > 520 ? 6 : 2);
   if (B.phase2 && d < 360 && B.cd.quake <= 0) add('quake', 2);
   if (!o.length) { B.wait = 0.25; return; }
   const n = pick(o);
   const pool = (B.phase2 ? STRINGS2 : STRINGS1)[n];
-  B.queue = pool && Math.random() < (B.phase2 ? 0.6 : 0.3) ? pool[Math.floor(Math.random() * pool.length)].slice() : [];
+  B.queue = pool && Math.random() < (B.phase2 ? Math.min(1, T.b.strings + 0.15) : T.b.strings) ? pool[Math.floor(Math.random() * pool.length)].slice() : [];
   let start = n;
   if (n === 'smash' && Math.random() < (B.phase2 ? 0.6 : 0.45)) start = 'smashD';
   if (n === 'thrust' && Math.random() < (B.phase2 ? 0.45 : 0.3)) start = 'thrustD';
@@ -245,7 +245,7 @@ function bossPunish() {
   if (dx * B.face < 0) { bBegin('turn'); return; }
   B.queue = [];
   if (d < 175) bBegin('upswing');
-  else if (d < 470) bBegin('thrust');
+  else if (d < 520) bBegin('thrust');
   else if (B.cd.leap <= 0) bBegin('leap');
 }
 function bossTrack(d) {
@@ -353,7 +353,7 @@ function updateBoss(dt) {
           if (B.behindT > 0.3) { B.behindT = 0; bossDecide(); }
         } else {
           B.behindT = 0;
-          if (d > 260) want = B.face * (B.phase2 ? T.b.walk2 : T.b.walk);
+          if (d > T.b.approach) want = B.face * T.b.walk * (B.phase2 ? 1.2 : 1);
         }
         B.wait -= dt;
         if (B.state === 'loco' && B.wait <= 0) bossDecide();

@@ -13,7 +13,7 @@ const TMP = {}, TMPB = {};
 
 function reset() {
   Object.assign(P, {
-    x: 480, y: 0, vx: 0, vy: 0, jvx: 0, face: 1,
+    x: 480, y: 0, vx: 0, face: 1,
     maxHp: T.p.hp, hp: T.p.hp, hpGhost: T.p.hp, ghostT: 0, st: T.p.st, stDelay: 0,
     flasks: T.p.flasks, state: 'loco', def: null, t: 0, start: null, pose: copyPose(PB, {}),
     moveBlend: 0, walkP: 0, flash: 0, charge: 0, holdT: 0, hitMask: 0, swingId: 0,

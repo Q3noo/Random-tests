@@ -14,7 +14,6 @@ function layout() {
   const Tp = Math.max(14, safe.t + 10), L0 = Math.max(16, safe.l + 12);
   const A = btn('light'); A.r = R * 1.2; A.x = W - mR - A.r; A.y = H - mB - A.r;
   const Ro = btn('roll'); Ro.r = R; Ro.x = A.x - A.r - Ro.r - R * 0.35; Ro.y = H - mB - Ro.r;
-  const J = btn('jump'); J.r = R * 0.95; J.x = A.x - R * 0.1; J.y = A.y - A.r - J.r - R * 0.35;
   const Bk = btn('block'); Bk.r = R * 0.95; Bk.x = Ro.x - R * 0.1; Bk.y = Ro.y - Ro.r - Bk.r - R * 0.45;
   const He = btn('heal'); He.r = R * 0.72; He.x = L0 + He.r; He.y = Tp + 48 + He.r;
   padHome = { x: mL + R * 1.4, y: H - mB - R * 1.4, r: R * 1.25 };
@@ -237,7 +236,7 @@ function drawHUD() {
     g.fillStyle = 'rgba(233,230,223,0.5)';
     const r = W - Math.max(16, safe.r + 12);
     ['A / D   run', 'J   attack  (hold: heavy, keep holding: charge)', 'K   heavy', 'Space   roll  (no direction: backstep)',
-      'W   jump', 'Shift   block  (press as the hit lands: parry)', 'E   heal', 'Esc   pause']
+      'Shift   block  (press as the hit lands: parry)', 'E   heal', 'Esc   pause']
       .forEach((s, i) => g.fillText(s, r, Tp + 56 + i * 17));
     g.textAlign = 'left';
   }

@@ -92,7 +92,6 @@ const sStep = snd((t, x, w) => {
   tone(t, 0.14, 'sine', 90, 38, 0.35 * w, 0.004, p);
   noise(t, 0.08, 'lowpass', 400, 150, 0.7, 0.16 * w, 0.004, p);
 });
-const sJump = snd((t, x) => noise(t, 0.16, 'bandpass', 500, 1100, 1, 0.12, 0.03, panOf(x)));
 const sHeal = snd(t => { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(t + i * 0.09, 0.5, 'sine', f, f, 0.1, 0.02, 0)); });
 const sCharge = snd((t, x) => tone(t, 0.3, 'sine', 880, 1320, 0.1, 0.01, panOf(x)));
 const sRoar = snd((t, x) => {

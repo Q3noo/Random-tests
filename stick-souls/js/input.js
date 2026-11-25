@@ -30,7 +30,7 @@ function releaseAll() {
 const KEYMAP = {
   ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r',
   KeyJ: 'atk', KeyZ: 'atk', KeyK: 'heavy', KeyX: 'heavy',
-  Space: 'roll', KeyW: 'jump', ArrowUp: 'jump', ShiftLeft: 'block', ShiftRight: 'block',
+  Space: 'roll', ShiftLeft: 'block', ShiftRight: 'block',
   KeyE: 'heal', KeyH: 'heal', KeyC: 'heal',
 };
 window.addEventListener('keydown', e => {
@@ -67,7 +67,7 @@ let touchUI = false;
 try { touchUI = window.matchMedia('(pointer: coarse)').matches; } catch (e) { /* desktop default */ }
 const btns = [
   { act: 'light', label: 'ATTACK', sub: 'hold: heavy' }, { act: 'roll', label: 'ROLL' },
-  { act: 'jump', label: 'JUMP' }, { act: 'block', label: 'BLOCK' }, { act: 'heal', label: 'HEAL' },
+  { act: 'block', label: 'BLOCK' }, { act: 'heal', label: 'HEAL' },
 ];
 const btn = a => btns.find(b => b.act === a);
 const ptrs = new Map();

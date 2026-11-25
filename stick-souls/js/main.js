@@ -10,12 +10,12 @@ function frame(t) {
   if (mode === 'play') {
     // attack button held long enough becomes a heavy
     if (input.atk.down && !input.atk.heavy && now() - input.atk.at >= T.p.holdTime) { input.atk.heavy = true; press('heavy'); }
-    const dt = rdt * T.f.game;
+    const dt = rdt;
     if (slowT > 0) {
       slowT -= dt;
       timeScale = slowT > 0.35 ? 0.3 : lerp(1, 0.3, Math.max(0, slowT) / 0.35);
     } else timeScale = 1;
-    let wdt = dt * timeScale;
+    let wdt = dt * timeScale * T.f.tempo;   // the fight runs at combat tempo; hit-stop and UI stay real-time
     if (hitStop > 0) { hitStop -= dt; wdt = 0; }
     acc += wdt;
     let n = 0;

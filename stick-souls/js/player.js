@@ -132,19 +132,6 @@ const PA = {
     moves: [{ t0: 0.04, t1: 0.30, d: -75, e: 'out2' }],
     cost: 'costBackstep', act: 0.36, rollAt: 0.36, regenAt: 0.5, roll: true, spd: 'roll',
   },
-  jump: {
-    an: mk(PB, [
-      [0, {}],
-      [0.08, { hy: -36, lean: 12, f1x: 12, f2x: -10 }, 'out'],
-      [0.22, { hy: -45, lean: 6, head: -6, f1x: 12, f1y: -18, f2x: -6, f2y: -12, ay: 16, w: -30 }, 'out'],
-      [9, {}, 'lin'],
-    ]),
-    regenAt: 99,
-  },
-  land: {
-    an: mk(PB, [[0, {}], [0.07, { hy: -34, lean: 14, f1x: 14, f2x: -12, f1y: 0, f2y: 0 }, 'out'], [0.2, GUARD, 'io']]),
-    act: 0.06, rollAt: 0.06, regenAt: 0.15,
-  },
   // hold to block (stays up at least 0.25s so a quick tap can still parry)
   block: {
     an: mk(PB, [[0, {}], [0.1, BLOCK, 'out'], [999, BLOCK, 'lin']]),
@@ -240,45 +227,12 @@ const PA = {
     inv: [0, 99], air: [0, 0.36, 26],
   },
 };
-// jump attacks are built per jump so the blow lands exactly as the feet touch down
-function makeJumpLight(Tl) {
-  return {
-    an: mk(PB, [
-      [0, {}],
-      [Tl * 0.5, { ax: -2, ay: -14, w: -150, lean: -4, hy: -44, head: -4, f1x: 10, f1y: -14, f2x: -8, f2y: -10 }, 'out'],
-      [Tl - 0.02, { ax: 24, ay: 10, w: 10, lean: 18, hy: -40, head: -8, f1x: 16, f1y: -4, f2x: -12, f2y: -2 }, 'in'],
-      [Tl + 0.07, { ax: 26, ay: 18, w: 34, lean: 26, hy: -34, f1x: 20, f1y: 0, f2x: -14, f2y: 0 }, 'out'],
-      [Tl + 0.32, { lean: 24 }, 'lin'],
-      [Tl + 0.55, GUARD, 'io'],
-    ]),
-    hits: [{ t0: Tl - 0.14, t1: Tl + 0.05, k: 'JL' }], pay: [Tl - 0.14, 'JL'],
-    events: [{ t: Tl, ev: 'land' }],
-    act: Tl + 0.45, rollAt: Tl + 0.36, regenAt: Tl + 0.4, atk: true,
-  };
-}
-function makeJumpHeavy(Tl) {
-  return {
-    an: mk(PB, [
-      [0, {}],
-      [Tl * 0.55, { ax: -6, ay: -26, w: -165, lean: -10, hy: -44, head: -8, f1x: 10, f1y: -14, f2x: -8, f2y: -10 }, 'out'],
-      [Tl - 0.02, { ax: 20, ay: 0, w: -20, lean: 16, hy: -40, f1x: 18, f1y: -4, f2x: -12, f2y: -2 }, 'in'],
-      [Tl + 0.08, { ax: 28, ay: 18, w: 35, lean: 32, hy: -32, head: -2, f1x: 24, f1y: 0, f2x: -16, f2y: 0 }, 'out'],
-      [Tl + 0.5, { lean: 30 }, 'lin'],
-      [Tl + 0.85, GUARD, 'io'],
-    ]),
-    hits: [{ t0: Tl - 0.12, t1: Tl + 0.07, k: 'JH' }], pay: [Tl - 0.12, 'JH'],
-    events: [{ t: Tl, ev: 'pImpact' }],
-    armor: [0, Tl + 0.1], act: Tl + 0.75, rollAt: Tl + 0.6, regenAt: Tl + 0.7, atk: true,
-  };
-}
 // [damage, poise damage, weight] per player hit kind
 const HIT = {
   L1: () => [T.p.dmgL, T.p.poiseL, 'light'],
   L2: () => [T.p.dmgL * 1.1, T.p.poiseL, 'light'],
   L3: () => [T.p.dmgL * 1.3, T.p.poiseL * 1.3, 'heavy'],
   H: () => (P.charge >= 1 ? [T.p.dmgCharged, T.p.poiseCharged, 'charged'] : [T.p.dmgHeavy, T.p.poiseHeavy, 'heavy']),
-  JL: () => [T.p.dmgJumpL, T.p.poiseJumpL, 'light'],
-  JH: () => [T.p.dmgJumpH, T.p.poiseJumpH, 'heavy'],
   RA: () => [T.p.dmgRollAtk, T.p.poiseRollAtk, 'light'],
   GC: () => [T.p.dmgCounter, T.p.poiseCounter, 'heavy'],
 };
@@ -286,9 +240,8 @@ const HIT = {
 const PAY = {
   L1: () => T.p.costLight, L2: () => T.p.costLight, L3: () => T.p.costLight * 1.25,
   H: () => T.p.costHeavy * (P.charge >= 1 ? 1.33 : 1),
-  JL: () => 15, JH: () => 30, RA: () => 14, GC: () => 20,
+  RA: () => 14, GC: () => 20,
 };
-const G_JUMP = 760;
 
 // ---------------------------------------------------------------- player logic
 function pInvuln() {
@@ -336,27 +289,8 @@ function startCrit() {
   B.queue = [];
   bBegin('critHit');
 }
-function startJump() {
-  spend(T.p.costJump);
-  const dir = inDir();
-  if (dir) P.face = dir;
-  P.jvx = dir ? dir * T.p.run * 0.9 : P.vx * 0.5;
-  P.vx = 0;
-  P.vy = -Math.sqrt(2 * G_JUMP * T.p.jumpH);
-  pBegin('jump');
-  sJump(P.x);
-}
-function startJumpAtk(heavy) {
-  const y0 = P.y, vy0 = P.vy;
-  const tNat = (-vy0 + Math.sqrt(Math.max(0, vy0 * vy0 - 2 * G_JUMP * y0))) / G_JUMP;
-  const Tl = Math.max(tNat, heavy ? 0.36 : 0.28);
-  const d = heavy ? makeJumpHeavy(Tl) : makeJumpLight(Tl);
-  d.jumpAtk = { y0, vy0, g: 2 * (-y0 - vy0 * Tl) / (Tl * Tl), T: Tl };
-  faceBoss();
-  pBegin(heavy ? 'jumpH' : 'jumpL', d);
-}
 function bossNoticeHeal() {
-  if (B.state === 'loco' && Math.abs(P.x - B.x) < 470 && Math.random() < T.b.healPunish) B.punishT = rand(0.1, 0.2);
+  if (B.state === 'loco' && Math.abs(P.x - B.x) < 520 && Math.random() < T.b.healPunish) B.punishT = rand(0.1, 0.2);
 }
 
 // Start a player-chosen action. Returns false if it can't happen right now.
@@ -378,7 +312,6 @@ function pDo(a) {
     P.face = dir; P.vx = 0; pBegin('roll'); sRoll(P.x);
     return true;
   }
-  if (a === 'jump') { if (!grounded()) return false; startJump(); return true; }
   if (a === 'light') {
     if (canCrit()) { startCrit(); return true; }
     if (P.state === 'roll' && P.t >= PA.roll.rollAtkFrom) { faceBoss(); pBegin('rollAtk'); return true; }
@@ -433,8 +366,6 @@ function pEvent(ev) {
     dust(P.S.wt[0], 6 + Math.round(8 * P.charge), 20);
     shake(2 + 4 * P.charge);
     sStep(P.S.wt[0], 0.8);
-  } else if (ev === 'land') {
-    dust(P.x, 5, 14); sStep(P.x, 0.4);
   } else if (ev === 'crit1' || ev === 'crit2') {
     const first = ev === 'crit1';
     damageBoss(T.p.dmgCrit * (first ? 0.6 : 0.4), 0, P.S.wt[0], P.S.wt[1], first ? 'crit' : 'heavy');
@@ -447,9 +378,7 @@ function pHits(d, t0, t1) {
     for (let j = 1; j <= 3; j++) {
       const tt = lerp(t0, t1, j / 3);
       if (tt < h.t0 || tt > h.t1) continue;
-      let y = P.y;
-      if (d.jumpAtk) { const J = d.jumpAtk; y = tt < J.T ? Math.min(0, J.y0 + J.vy0 * tt + 0.5 * J.g * tt * tt) : 0; }
-      const S = solve(PR, sample(d.an, tt, P.start, TMP), P.x, y, P.face);
+      const S = solve(PR, sample(d.an, tt, P.start, TMP), P.x, P.y, P.face);
       addTrail('p', P.swingId, S.hA, S.wt);
       if (B.state === 'dead') continue;
       const hit = hitTest(S.hA, S.wt, 3, B.caps);
@@ -463,6 +392,14 @@ function pHits(d, t0, t1) {
   }
 }
 const actSpeed = d => (d.spd === 'atk' ? T.f.atkSpeed : d.spd === 'roll' ? T.f.rollSpeed : 1);
+// Pace: after the last damaging frame (or the roll's invincibility) your recovery plays faster,
+// so you get back into the fight sooner while wind-ups stay readable.
+function recStart(d) {
+  if (d.hits) { if (d._rec == null) d._rec = Math.max(...d.hits.map(h => h.t1)); return d._rec; }
+  if (d.inv === 'roll') return 0.03 + T.p.rollInv;
+  if (d.roll && d.moves) return d.moves[0].t1;
+  return null;
+}
 
 function updatePlayer(dt) {
   if (P.flash > 0) P.flash -= dt;
@@ -490,46 +427,29 @@ function updatePlayer(dt) {
     P.vx *= Math.exp(-8 * dt); P.x += P.vx * dt; clampP();
     if (P.holdT >= T.p.chargeTime / T.f.atkSpeed) pStrike(1);
     else if (!heavyHeld()) pStrike(0);
-  } else if (P.state === 'jump') playerJump(dt);
-  else playerAction(dt);
+  } else playerAction(dt);
   const fm = P.state === 'loco' ? 'gait'
     : (P.state === 'roll' || P.state === 'down' || P.state === 'dead' || P.y < -1) ? 'free' : 'lock';
   P.S = solve(PR, finalize(P, PC, dt, fm), P.x, P.y, P.face);
 }
-function playerJump(dt) {
-  P.t += dt;
-  P.vy += G_JUMP * dt;
-  P.y += P.vy * dt;
-  P.x += P.jvx * dt;
-  clampP();
-  sample(P.def.an, P.t, P.start, P.pose);
-  if (P.y >= 0 && P.vy > 0) { P.y = 0; dust(P.x, 4, 12); sStep(P.x, 0.35); pBegin('land'); return; }
-  const b = buffered();
-  if ((b === 'light' || b === 'heavy') && P.t > 0.04) { input.buffer = null; startJumpAtk(b === 'heavy'); }
-}
 function playerAction(dt) {
-  const d = P.def, name = P.state, t0 = P.t;
-  P.t += dt * actSpeed(d);
+  const d = P.def, name = P.state, t0 = P.t, rs = recStart(d);
+  P.t += dt * actSpeed(d) * (rs != null && t0 >= rs ? T.f.recovery : 1);
   const t1 = P.t;
   P.vx *= Math.exp(-6.5 * dt);
-  let mx = P.vx * dt + P.face * rootMove(d, t0, t1, null);
-  if (d.jumpAtk && t1 < d.jumpAtk.T) mx += P.jvx * dt;
-  P.x += mx;
+  P.x += P.vx * dt + P.face * rootMove(d, t0, t1, null);
   if (name === 'crit') P.x = lerp(P.critX0, P.critX1, EASE.out(clamp(t1 / 0.15, 0, 1)));
   clampP();
   if (d.air) {
     const u = clamp((t1 - d.air[0]) / (d.air[1] - d.air[0]), 0, 1);
     P.y = -4 * d.air[2] * u * (1 - u);
-  } else if (d.jumpAtk) {
-    const J = d.jumpAtk;
-    P.y = t1 < J.T ? Math.min(0, J.y0 + J.vy0 * t1 + 0.5 * J.g * t1 * t1) : 0;
   } else P.y = 0;
   if (d.guard) faceBoss();
   sample(d.an, t1, P.start, P.pose);
   P.S = solve(PR, P.pose, P.x, P.y, P.face);
   if (d.hits) for (const h of d.hits) {
     const w = h.t0 - 0.08;
-    if (t0 < w && t1 >= w) sWhoosh(P.x, h.k !== 'L1' && h.k !== 'L2' && h.k !== 'RA' && h.k !== 'JL');
+    if (t0 < w && t1 >= w) sWhoosh(P.x, h.k !== 'L1' && h.k !== 'L2' && h.k !== 'RA');
   }
   if (d.pay && t0 < d.pay[0] && t1 >= d.pay[0]) spend(PAY[d.pay[1]]());
   if (d.events) for (const e of d.events) if (t0 < e.t && t1 >= e.t) pEvent(e.ev);
