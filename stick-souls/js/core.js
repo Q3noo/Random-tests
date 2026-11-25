@@ -28,7 +28,7 @@ const EASE = {
 // ---------------------------------------------------------------- pose + keyframes
 // A pose is a set of numbers in "facing space" (+x forward, +y down, origin on the ground
 // under the character). Hands and feet are IK targets; the weapon angle w is in degrees.
-const KEYS = ['hx', 'hy', 'lean', 'head', 'ax', 'ay', 'bx', 'by', 'w', 'th', 'ea', 'eb',
+const KEYS = ['hx', 'hy', 'lean', 'head', 'ax', 'ay', 'bx', 'by', 'w', 'w2', 'th', 'ea', 'eb',
   'f1x', 'f1y', 'f2x', 'f2y', 'rot', 'ox', 'oy'];
 const BASE = Symbol('base');
 
@@ -113,6 +113,11 @@ function solve(R, p, X, Y, face) {
     wb: [hA[0] - wx * R.pommel, hA[1] - wy * R.pommel],
     wt: [hA[0] + wx * R.wlen, hA[1] + wy * R.wlen],
   };
+  if (R.wlen2) {   // a second weapon in the other hand (dual wielders), angle w2
+    const w2 = p.w2 * D2R, vx2 = Math.cos(w2), vy2 = Math.sin(w2);
+    pts.wb2 = [Bj[2] - vx2 * R.pommel, Bj[3] - vy2 * R.pommel];
+    pts.wt2 = [Bj[2] + vx2 * R.wlen2, Bj[3] + vy2 * R.wlen2];
+  }
   const r = p.rot * D2R, c = Math.cos(r), s = Math.sin(r);
   const S = {};
   for (const k in pts) {
@@ -198,7 +203,7 @@ function plantFeet(ch, cfg, dt, mode, dx, p) {
       const u = clamp(f.step.t / f.step.dur, 0, 1);
       f.off = f.step.from * (1 - EASE.io(u));
       lift = cfg.lift * f.step.h * Math.sin(Math.PI * u);
-      if (u >= 1) { f.step = null; f.off = 0; if (ch === B) sStep(B.x, 0.6); }
+      if (u >= 1) { f.step = null; f.off = 0; if (ch === B) sStep(B.x, BK.stepW); }
     } else if (mode === 'free' || p[K[i][1]] < -2) {
       f.off *= Math.exp(-18 * dt);
     } else if (mode === 'lock') {
@@ -232,7 +237,7 @@ function finalize(ch, cfg, dt, mode) {
   const al = ax * ch.face;
   // torso settles into running speed and pitches a little on starts and stops
   if (mode === 'gait') {
-    spring(ch.sLean, clamp(cfg.leanV * vx * ch.face / cfg.walk - 0.0035 * al, -9, 9), cfg.lean[0], cfg.lean[1], dt);
+    spring(ch.sLean, clamp(cfg.leanV * vx * ch.face / Math.max(1, cfg.walk) - 0.0035 * al, -9, 9), cfg.lean[0], cfg.lean[1], dt);
     ch.lw = 1;
   } else ch.lw = Math.max(0, ch.lw - dt / 0.12);
   p.lean += ch.sLean.x * ch.lw;

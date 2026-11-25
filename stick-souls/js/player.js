@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------- player rig + moves
 const PR = { thigh: 23, shin: 23, spine: 31, neck: 5, headR: 8.5, upper: 17.5, fore: 17.5,
   grip: 11, pommel: 14, wlen: 76, pvx: 12, pvy: -26, line: 4 };
-const PB = { hx: 0, hy: -42, lean: 8, head: -4, ax: 14, ay: 22, bx: 8, by: 24, w: -38, th: 1, ea: 1, eb: 1,
+const PB = { hx: 0, hy: -42, lean: 8, head: -4, ax: 14, ay: 22, bx: 8, by: 24, w: -38, w2: 0, th: 1, ea: 1, eb: 1,
   f1x: 13, f1y: 0, f2x: -12, f2y: 0, rot: 0, ox: 0, oy: 0 };
 const GUARD = { hx: 0, hy: -42, lean: 8, head: -4, ax: 14, ay: 22, w: -38, th: 1, ea: 1,
   f1x: 14, f1y: 0, f2x: -12, f2y: 0, rot: 0, ox: 0, oy: 0 };
@@ -280,17 +280,17 @@ function toLoco() {
 function canCrit() {
   if (!(B.def && B.def.critable) || B.y < -1 || !grounded()) return false;
   const rel = (P.x - B.x) * B.face;   // positive: you are in front of the boss
-  return rel > 30 && rel < 170;
+  return rel > BK.critRange[0] && rel < BK.critRange[1];
 }
 function startCrit() {
   P.face = -B.face;
   pBegin('crit');
-  P.critX0 = P.x; P.critX1 = B.x + B.face * 92;
+  P.critX0 = P.x; P.critX1 = B.x + B.face * BK.critDist;
   B.queue = [];
   bBegin('critHit');
 }
 function bossNoticeHeal() {
-  if (B.state === 'loco' && Math.abs(P.x - B.x) < 520 && Math.random() < T.b.healPunish) B.punishT = rand(0.1, 0.2);
+  if (B.state === 'loco' && Math.abs(P.x - B.x) < BK.punishReach && Math.random() < T.b.healPunish) B.punishT = rand(0.1, 0.2);
 }
 
 // Start a player-chosen action. Returns false if it can't happen right now.

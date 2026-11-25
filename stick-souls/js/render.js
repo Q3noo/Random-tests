@@ -87,45 +87,9 @@ function claws(e, h) {
 }
 function drawBoss() {
   const S = B.S;
-  const col = B.flash > 0 ? C.bossFlash : (B.phase2 ? C.boss2 : C.boss);
+  const col = B.flash > 0 ? C.bossFlash : (B.phase2 ? BK.col2 : BK.col);
   g.lineCap = 'round'; g.lineJoin = 'round';
-  g.strokeStyle = col; g.lineWidth = BR.line;
-  g.globalAlpha = 0.5;
-  path([S.hip, S.k2, S.f2]);
-  path([S.sh, S.eB, S.hB]);
-  g.lineWidth = 4; claws(S.eB, S.hB);
-  g.globalAlpha = 1; g.lineWidth = BR.line;
-  path([S.hip, S.sh, S.nk]);
-  const hd = S.hd, up = S.up, fw = S.fw;
-  g.lineWidth = 5;
-  for (const side of [-1, 1]) {
-    const bx = hd[0] + up[0] * 12 - fw[0] * (4 + side * 6), by = hd[1] + up[1] * 12 - fw[1] * (4 + side * 6);
-    g.beginPath();
-    g.moveTo(bx, by);
-    g.quadraticCurveTo(hd[0] + up[0] * 34 + fw[0] * 4, hd[1] + up[1] * 34 + fw[1] * 4,
-      hd[0] + up[0] * 40 - fw[0] * (22 + side * 6), hd[1] + up[1] * 40 - fw[1] * (22 + side * 6));
-    g.stroke();
-  }
-  g.lineWidth = 6;
-  g.beginPath(); g.arc(hd[0], hd[1], BR.headR, 0, Math.PI * 2);
-  g.fillStyle = C.bg; g.fill(); g.stroke();
-  if (B.state !== 'dead') {
-    g.fillStyle = C.eye;
-    if (B.phase2) { g.shadowColor = C.eye; g.shadowBlur = 12; }
-    g.beginPath();
-    g.arc(hd[0] + fw[0] * 8 + up[0] * 2, hd[1] + fw[1] * 8 + up[1] * 2, B.phase2 ? 3.6 : 3, 0, Math.PI * 2);
-    g.fill();
-    g.shadowBlur = 0;
-  }
-  g.lineWidth = BR.line;
-  path([S.hip, S.k1, S.f1]);
-  const hx = S.hA[0], hy = S.hA[1], tx = S.wt[0], ty = S.wt[1];
-  const L = Math.hypot(tx - hx, ty - hy) || 1, ux = (tx - hx) / L, uy = (ty - hy) / L;
-  g.strokeStyle = C.club;
-  g.lineWidth = 7; path([[hx - ux * 14, hy - uy * 14], [tx - ux * 40, ty - uy * 40]]);
-  g.lineWidth = 17; path([[tx - ux * 44, ty - uy * 44], [tx - ux * 7, ty - uy * 7]]);
-  g.strokeStyle = col; g.lineWidth = BR.line;
-  path([S.sh, S.eA, S.hA]);
+  BK.draw(S, col);
   // critical hit available: a pulsing mark on the boss's chest
   if (mode === 'play' && canCrit() && (P.state === 'loco' || (P.def && P.t >= (P.def.act || 0)))) {
     const cx = lerp(S.hip[0], S.sh[0], 0.6), cy = lerp(S.hip[1], S.sh[1], 0.6), k = 0.5 + 0.5 * Math.sin(clock * 10);
@@ -229,7 +193,7 @@ function drawHUD() {
   const by = H - Math.max(18, safe.b + 14) - 8;
   g.font = `${Math.round(clamp(W * 0.02, 14, 19))}px ${FONT_D}`;
   g.fillStyle = C.ui; g.textBaseline = 'bottom'; g.textAlign = 'left';
-  g.fillText(BOSS_NAME, bx, by - 6);
+  g.fillText(BK.name, bx, by - 6);
   bar(bx, by, bbw, 8, B.hp / B.maxHp, B.hpGhost / B.maxHp, C.bossHp);
   if (!touchUI) {
     g.font = `500 12px ${FONT_UI}`; g.textAlign = 'right'; g.textBaseline = 'top';
@@ -310,7 +274,7 @@ function render() {
   g.beginPath(); g.rect(-5000, -5000, 12000, 5000); g.clip();   // nothing draws below the ground line
   drawBoss();
   drawPlayer();
-  drawTrail(trails.b, 0.55, '220,200,178', 0.32);
+  drawTrail(trails.b, 0.55, BK.trailRGB, 0.32);
   drawTrail(trails.p, 0.38, '206,224,255', 0.5);
   drawParts();
   g.restore();

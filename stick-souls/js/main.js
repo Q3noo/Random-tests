@@ -16,7 +16,10 @@ function frame(t) {
       timeScale = slowT > 0.35 ? 0.3 : lerp(1, 0.3, Math.max(0, slowT) / 0.35);
     } else timeScale = 1;
     let wdt = dt * timeScale * T.f.tempo;   // the fight runs at combat tempo; hit-stop and UI stay real-time
-    if (hitStop > 0) { hitStop -= dt; wdt = 0; }
+    if (hitStop > 0) {
+      hitStop -= dt; wdt = 0;
+      if (input.buffer) input.buffer.at += dt;   // presses made during a freeze-frame aren't lost
+    }
     acc += wdt;
     let n = 0;
     while (acc >= T.step && n < 24) {
@@ -52,6 +55,6 @@ requestAnimationFrame(frame);
 
 // Handle for automated checks.
 window.__duel = { P, B, T, input, press, reset, bBegin, pDo, canCrit, atkDown, atkUp, blockDown, blockUp,
-  startGame, pauseGame, resumeGame, toMenu,
+  startGame, pauseGame, resumeGame, toMenu, selectBoss: id => { BK = BOSSES[id]; }, get BK() { return BK; },
   get mode() { return mode; }, get waves() { return waves; }, get ended() { return ended; },
   toScreen: (x, y) => [W / 2 - camX * scale + x * scale, groundY + y * scale] };

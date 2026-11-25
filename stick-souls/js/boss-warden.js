@@ -4,8 +4,8 @@
 
 // ---------------------------------------------------------------- boss rig + moves
 const BR = { thigh: 58, shin: 58, spine: 86, neck: 10, headR: 18, upper: 56, fore: 56,
-  grip: 0, pommel: 16, wlen: 128, pvx: 0, pvy: -50, line: 8.5 };
-const BB = { hx: 0, hy: -100, lean: 24, head: -14, ax: 30, ay: 68, bx: 46, by: 52, w: 58, th: 0, ea: 1, eb: 1,
+  grip: 0, pommel: 16, wlen: 128, wlen2: 0, pvx: 0, pvy: -50, line: 8.5 };
+const BB = { hx: 0, hy: -100, lean: 24, head: -14, ax: 30, ay: 68, bx: 46, by: 52, w: 58, w2: 0, th: 0, ea: 1, eb: 1,
   f1x: 42, f1y: 0, f2x: -46, f2y: 0, rot: 0, ox: 0, oy: 0 };
 const KNEEL = { hy: -62, lean: 56, head: 6, ax: 30, ay: 70, w: 85, bx: 50, by: 66, f1x: 50, f1y: 0, f2x: -30, f2y: 0 };
 
@@ -167,59 +167,17 @@ const STRINGS2 = {
   thrust: [['upswing'], ['upswing', 'smash']], leap: [['stomp']],
 };
 
-// ---------------------------------------------------------------- boss logic
-function bossCaps(S) {
+// ---------------------------------------------------------------- Gaunt Warden: AI, events, walk, drawing
+function wardenCaps(S) {
   return [
     [S.hip, S.sh, 22], [S.sh, S.hd, 18],
     [S.hip, S.k1, 13], [S.k1, S.f1, 11], [S.hip, S.k2, 13], [S.k2, S.f2, 11],
     [S.sh, S.eA, 10], [S.eA, S.hA, 9], [S.sh, S.eB, 9], [S.eB, S.hB, 8],
   ];
 }
-function playerCaps() {
-  const S = P.S;
-  return [[S.hip, S.hd, 10], [S.hip, S.f1, 5], [S.hip, S.f2, 5]];
-}
-const maxPoise = () => T.b.poise * (B.phase2 ? 1.2 : 1);
-const bSpeed = () => (B.phase2 ? T.b.speed2 : 1) * T.f.bossSpeed;
-// the last attack of a string keeps at least 1.2 real seconds of recovery after its hit
-function withFinisher(d) {
-  const ends = [];
-  if (d.hits) for (const h of d.hits) ends.push(h.t1);
-  if (d.events) for (const e of d.events) ends.push(e.t);
-  const lastHit = ends.length ? Math.max(...ends) : 0;
-  const extra = 1.2 * bSpeed() - (d.act - lastHit);
-  return extra > 0.01 ? shifted(d, lastHit + 0.02, extra) : d;
-}
-function bBegin(name, finisher) {
-  let d = BA[name];
-  if (finisher) d = withFinisher(d);
-  B.state = name; B.def = d; B.t = 0; B.start = copyPose(B.pose, {}); B.hitMask = 0;
-  B.adaptD = null; B.vx = 0; B.swingId++; B.leapTo = B.x; B.punishT = 0;
-  if (name === 'stagger' || name === 'dead' || name === 'reel' || name === 'critHit') B.queue = [];
-  if (name === 'leap') B.cd.leap = T.b.cdLeap;
-  if (name === 'stomp') B.cd.stomp = T.b.cdStomp;
-  if (name === 'quake') B.cd.quake = T.b.cdQuake;
-  if (d.atk) { B.last.unshift(name.replace(/D$/, '')); B.last.length = Math.min(B.last.length, 3); }
-}
-function bLoco() {
-  B.state = 'loco'; B.def = null; B.moveBlend = 0; B.sLean.x = B.sLean.v = 0;
-  B.wait = (B.phase2 ? rand(0.1, 0.4) : rand(0.25, 0.6)) * T.f.bossPause;
-}
-function pick(o) {
-  let s = 0;
-  for (const it of o) s += it[1];
-  let r = Math.random() * s;
-  for (const it of o) { r -= it[1]; if (r <= 0) return it[0]; }
-  return o[o.length - 1][0];
-}
-function bossDecide() {
+function wardenDecide() {
   if (P.state === 'dead') { B.wait = 1; return; }
-  if (B.pending2) {
-    B.pending2 = false; B.phase2 = true; B.poise = maxPoise();
-    B.face = Math.sign(P.x - B.x) || B.face;
-    bBegin('roar');
-    return;
-  }
+  if (B.pending2) { bossPhase2('roar'); return; }
   const dx = P.x - B.x, d = Math.abs(dx), front = dx * B.face > 0;
   if (!front && d > 30) { bBegin(d < 170 && B.cd.stomp <= 0 ? 'stomp' : 'turn'); return; }
   const o = [];
@@ -232,15 +190,14 @@ function bossDecide() {
   if (B.phase2 && d < 360 && B.cd.quake <= 0) add('quake', 2);
   if (!o.length) { B.wait = 0.25; return; }
   const n = pick(o);
-  const pool = (B.phase2 ? STRINGS2 : STRINGS1)[n];
-  B.queue = pool && Math.random() < (B.phase2 ? Math.min(1, T.b.strings + 0.15) : T.b.strings) ? pool[Math.floor(Math.random() * pool.length)].slice() : [];
+  B.queue = pickString(n, STRINGS1, STRINGS2, T.b.strings);
   let start = n;
   if (n === 'smash' && Math.random() < (B.phase2 ? 0.6 : 0.45)) start = 'smashD';
   if (n === 'thrust' && Math.random() < (B.phase2 ? 0.45 : 0.3)) start = 'thrustD';
   bBegin(start, false);
 }
 // punish a heal started within reach
-function bossPunish() {
+function wardenPunish() {
   const dx = P.x - B.x, d = Math.abs(dx);
   if (dx * B.face < 0) { bBegin('turn'); return; }
   B.queue = [];
@@ -248,28 +205,13 @@ function bossPunish() {
   else if (d < 520) bBegin('thrust');
   else if (B.cd.leap <= 0) bBegin('leap');
 }
-function bossTrack(d) {
-  const dist = Math.abs(P.x - B.x), front = (P.x - B.x) * B.face > 0;
-  const m = d.moves && d.moves.find(mv => mv.adapt);
-  if (m) B.adaptD = front ? clamp(dist - m.adapt[0], m.adapt[1], m.adapt[2]) : m.adapt[1];
-  if (d.leap) B.leapTo = clamp(front ? P.x - B.face * 105 : B.x + B.face * 60, T.arenaL + 80, T.arenaR - 80);
-}
-function leapMotion(L, t0, t1) {
-  if (t0 < L.t0 && t1 >= L.t0) B.leapFrom = B.x;
-  if (t1 >= L.t0 && t0 <= L.t1) {
-    const u = clamp((t1 - L.t0) / (L.t1 - L.t0), 0, 1);
-    B.x = lerp(B.leapFrom, B.leapTo, EASE.io(u));
-    B.y = -4 * L.h * u * (1 - u);
-  }
-}
-function bEvent(ev) {
+function wardenEvent(ev) {
   const S = B.S;
   const stopped = B.stoppedSwing === B.swingId;   // the club was blocked: its impact wave can't hurt
   if (ev === 'smash') { addWave(S.wt[0], 85, 10, 'small', { src: B.x, harmless: stopped }); shake(10); dust(S.wt[0], 14, 30); sImpact(S.wt[0], 1); }
   else if (ev === 'leap') { const x = B.x + B.face * 70; addWave(x, 210, 14, 'small', { src: B.x, harmless: stopped }); shake(16); dust(x, 26, 90); sQuake(x); }
   else if (ev === 'stomp') { addWave(S.f1[0], 140, 12, 'small', { src: B.x }); shake(9); dust(S.f1[0], 16, 40); sQuake(S.f1[0]); }
   else if (ev === 'roar') { addWave(B.x, 320, 0, 'push', { ring: S.hd }); shake(12); sRoar(B.x); }
-  else if (ev === 'flip') { if ((P.x - B.x) * B.face < 0) B.face *= -1; }
   else if (ev.startsWith('quake')) {
     const i = +ev.slice(5), r0 = [0, 130, 240][i - 1], r1 = [140, 250, 370][i - 1];
     if (i === 1) waveGroup++;
@@ -278,45 +220,7 @@ function bEvent(ev) {
     dust(B.x - r1 + 20, 8, 20); dust(B.x + r1 - 20, 8, 20);
   }
 }
-function bHits(d, t0, t1) {
-  for (let i = 0; i < d.hits.length; i++) {
-    const h = d.hits[i];
-    if ((B.hitMask & (1 << i)) || t1 < h.t0 || t0 > h.t1) continue;
-    for (let j = 1; j <= 3; j++) {
-      const tt = lerp(t0, t1, j / 3);
-      if (tt < h.t0 || tt > h.t1) continue;
-      const S = solve(BR, sample(d.an, tt, B.start, TMPB), B.x, B.y, B.face);
-      addTrail('b', B.swingId, S.hA, S.wt);
-      if (P.state === 'dead' || pInvuln()) continue;
-      if (hitTest(S.hA, S.wt, 9, playerCaps())) {
-        B.hitMask |= 1 << i;
-        const res = hurtPlayer(h.dmg, h.knock, B.x, { parry: true, guard: h.guard });
-        if (res === 'block' || res === 'parry') B.stoppedSwing = B.swingId;
-        break;
-      }
-    }
-    if (B.def !== d) return;   // parried mid-swing
-  }
-}
-function damageBoss(dmg, poise, x, y, kind) {
-  if (B.state === 'dead') return;
-  const mult = B.state === 'stagger' ? T.b.staggerMult : 1;
-  B.hp = Math.max(0, B.hp - dmg * mult);
-  B.flash = kind === 'crit' ? 0.2 : 0.09; B.ghostT = 0.8; B.poiseT = 0;
-  if (kind === 'crit') {
-    hitstop(0.18); shake(12); sparks(x, y, P.face, 26, C.crit); sCrit(x);
-  } else {
-    const heavy = kind !== 'light';
-    hitstop(kind === 'charged' ? 0.12 : heavy ? 0.09 : 0.075);
-    shake(kind === 'charged' ? 8 : heavy ? 5 : 2.5);
-    sparks(x, y, P.face, heavy ? 15 : 9, C.spark);
-    sImpact(x, kind === 'charged' ? 1 : heavy ? 0.6 : 0.25);
-  }
-  if (B.hp <= 0) { bBegin('dead'); waves = []; slowT = 1.4; endIn('win', 2.8); sVictory(); return; }
-  if (!(B.def && B.def.noPoise)) B.poise -= poise * T.f.poiseMult;
-  if (!B.phase2 && B.hp <= B.maxHp * T.b.phase2At) B.pending2 = true;
-}
-function bossLoco(dt) {
+function wardenLoco(dt) {
   const v = B.vx * B.face, S = 30;
   B.moveBlend = approach(B.moveBlend, clamp(Math.abs(B.vx) / 80, 0, 1), dt * 4);
   const before = Math.floor(B.walkP * 2);
@@ -332,71 +236,61 @@ function bossLoco(dt) {
   p.w = BB.w + Math.sin(q) * 4 * m;
   p.by = BB.by + Math.sin(q + 1) * 6 * m;
 }
-
-function updateBoss(dt) {
-  if (B.flash > 0) B.flash -= dt;
-  B.cd.leap -= dt; B.cd.stomp -= dt; B.cd.quake -= dt;
-  B.poiseT += dt;
-  if (B.poiseT > T.b.poiseDelay && !(B.def && B.def.noPoise)) B.poise = Math.min(maxPoise(), B.poise + T.b.poiseRegen * dt);
-  if (B.poise <= 0 && B.state !== 'dead' && B.y >= -0.5 && !(B.def && B.def.noPoise)) {
-    bBegin('stagger'); shake(6); sImpact(B.x, 1);
+function drawWarden(S, col) {
+  g.strokeStyle = col; g.lineWidth = BR.line;
+  g.globalAlpha = 0.5;
+  path([S.hip, S.k2, S.f2]);
+  path([S.sh, S.eB, S.hB]);
+  g.lineWidth = 4; claws(S.eB, S.hB);
+  g.globalAlpha = 1; g.lineWidth = BR.line;
+  path([S.hip, S.sh, S.nk]);
+  const hd = S.hd, up = S.up, fw = S.fw;
+  g.lineWidth = 5;
+  for (const side of [-1, 1]) {
+    const bx = hd[0] + up[0] * 12 - fw[0] * (4 + side * 6), by = hd[1] + up[1] * 12 - fw[1] * (4 + side * 6);
+    g.beginPath();
+    g.moveTo(bx, by);
+    g.quadraticCurveTo(hd[0] + up[0] * 34 + fw[0] * 4, hd[1] + up[1] * 34 + fw[1] * 4,
+      hd[0] + up[0] * 40 - fw[0] * (22 + side * 6), hd[1] + up[1] * 40 - fw[1] * (22 + side * 6));
+    g.stroke();
   }
-
-  if (B.state === 'loco') {
-    const dx = P.x - B.x, d = Math.abs(dx), front = dx * B.face > 0;
-    let want = 0;
-    if (P.state !== 'dead' && !ended) {
-      if (B.punishT > 0) { B.punishT -= dt; if (B.punishT <= 0) bossPunish(); }
-      if (B.state === 'loco') {
-        if (!front && d > 30) {
-          B.behindT += dt;
-          if (B.behindT > 0.3) { B.behindT = 0; bossDecide(); }
-        } else {
-          B.behindT = 0;
-          if (d > T.b.approach) want = B.face * T.b.walk * (B.phase2 ? 1.2 : 1);
-        }
-        B.wait -= dt;
-        if (B.state === 'loco' && B.wait <= 0) bossDecide();
-      }
-    }
-    if (B.state === 'loco') {
-      B.vx = approach(B.vx, want, 260 * dt);
-      B.x += B.vx * dt;
-      if (B.y < 0) B.y = Math.min(0, B.y + 700 * dt);
-      bossLoco(dt);
-    }
+  g.lineWidth = 6;
+  g.beginPath(); g.arc(hd[0], hd[1], BR.headR, 0, Math.PI * 2);
+  g.fillStyle = C.bg; g.fill(); g.stroke();
+  if (B.state !== 'dead') {
+    g.fillStyle = C.eye;
+    if (B.phase2) { g.shadowColor = C.eye; g.shadowBlur = 12; }
+    g.beginPath();
+    g.arc(hd[0] + fw[0] * 8 + up[0] * 2, hd[1] + fw[1] * 8 + up[1] * 2, B.phase2 ? 3.6 : 3, 0, Math.PI * 2);
+    g.fill();
+    g.shadowBlur = 0;
   }
-  if (B.state !== 'loco') {
-    const d = B.def, t0 = B.t;
-    B.t += dt * bSpeed();
-    const t1 = B.t, name = B.state;
-    // keep turning to face the player until the commit point
-    if (d.commit != null && t1 < d.commit && (P.x - B.x) * B.face < -40 && B.y >= -1 && P.state !== 'dead') B.face *= -1;
-    if (d.commit != null && t0 < d.commit && t1 >= d.commit) bossTrack(d);
-    B.x += B.face * rootMove(d, t0, t1, B.adaptD);
-    if (d.leap) leapMotion(d.leap, t0, t1);
-    else if (B.y < 0) B.y = Math.min(0, B.y + 700 * dt);
-    sample(d.an, t1, B.start, B.pose);
-    B.S = solve(BR, B.pose, B.x, B.y, B.face);
-    if (d.hits) for (const h of d.hits) {
-      const w = h.t0 - 0.1;
-      if (t0 < w && t1 >= w) sWhoosh(B.x, true);
-    }
-    if (d.events) for (const e of d.events) if (t0 < e.t && t1 >= e.t) bEvent(e.ev);
-    if (d.hits && B.state === name) bHits(d, t0, t1);
-    if (B.state === name && name !== 'dead') {
-      if (B.queue.length && d.cancel != null && t1 >= d.cancel && P.state !== 'dead') {
-        const n = B.queue.shift();
-        B.face = Math.sign(P.x - B.x) || B.face;
-        bBegin(n, B.queue.length === 0);
-      } else if (t1 >= d.an.dur) {
-        if (name === 'stagger' || name === 'critHit' || name === 'reel') B.poise = maxPoise();
-        bLoco();
-      }
-    }
-  }
-  B.x = clamp(B.x, T.arenaL + 70, T.arenaR - 70);
-  const fm = B.state === 'loco' ? 'gait' : (B.state === 'dead' || B.y < -1) ? 'free' : 'lock';
-  B.S = solve(BR, finalize(B, BC, dt, fm), B.x, B.y, B.face);
-  B.caps = bossCaps(B.S);
+  g.lineWidth = BR.line;
+  path([S.hip, S.k1, S.f1]);
+  const hx = S.hA[0], hy = S.hA[1], tx = S.wt[0], ty = S.wt[1];
+  const L = Math.hypot(tx - hx, ty - hy) || 1, ux = (tx - hx) / L, uy = (ty - hy) / L;
+  g.strokeStyle = C.club;
+  g.lineWidth = 7; path([[hx - ux * 14, hy - uy * 14], [tx - ux * 40, ty - uy * 40]]);
+  g.lineWidth = 17; path([[tx - ux * 44, ty - uy * 44], [tx - ux * 7, ty - uy * 7]]);
+  g.strokeStyle = col; g.lineWidth = BR.line;
+  path([S.sh, S.eA, S.hA]);
 }
+
+BOSSES.warden = {
+  id: 'warden', name: 'Gaunt Warden',
+  blurb: 'A towering brute with a stone club. Slow, heavy, punishing.',
+  R: BR, base: BB, moves: BA, mc: BC, caps: wardenCaps, weaponR: 9,
+  hp: () => T.b.hp, poise: () => T.b.poise, walk: () => T.b.walk, approach: () => T.b.approach,
+  speed2: () => T.b.speed2,
+  cd: () => ({ leap: 3, stomp: 0, quake: 2 }),
+  onBegin(name) {
+    if (name === 'leap') B.cd.leap = T.b.cdLeap;
+    if (name === 'stomp') B.cd.stomp = T.b.cdStomp;
+    if (name === 'quake') B.cd.quake = T.b.cdQuake;
+  },
+  pause: () => (B.phase2 ? rand(0.1, 0.4) : rand(0.25, 0.6)),
+  decide: wardenDecide, punish: wardenPunish, event: wardenEvent, loco: wardenLoco, draw: drawWarden,
+  col: C.boss, col2: C.boss2, startX: 1000, edge: 70, walkAccel: 260, turnDelay: 0.3, heavyWhoosh: true,
+  critDist: 92, critRange: [30, 170], punishReach: 520, stepW: 0.6, trailRGB: '220,200,178',
+};
+BK = BOSSES.warden;

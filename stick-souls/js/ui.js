@@ -87,6 +87,10 @@ const UI_CSS = `
 #ss-ui button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 #ss-ui button.primary { background: var(--accent); border-color: #d2493d; }
 #ss-ui button.primary:hover { background: #cc4236; }
+#ss-ui button.foe { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+  text-transform: none; letter-spacing: 0; padding: 12px 16px; }
+#ss-ui .foe-name { font-family: ${FONT_D}; font-size: 22px; font-weight: 400; }
+#ss-ui .foe-blurb { font-size: 13px; font-weight: 400; color: var(--dim); }
 #ss-ui .settings { width: min(760px, 100%); max-height: 100%; padding: 0; gap: 0; }
 #ss-ui .head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 #ss-ui .head h2 { flex: 1; text-align: left; font-size: 26px; }
@@ -129,11 +133,27 @@ function buildUI() {
 
   const main = el('div', 'scrim');
   const mp = el('div', 'panel');
-  mp.append(el('h1', null, 'Stick Souls'), el('p', 'tag', 'One boss. One greatsword.'));
+  mp.append(el('h1', null, 'Stick Souls'), el('p', 'tag', 'Two bosses. One greatsword.'));
   const bStart = el('button', 'primary', 'Start'); bStart.type = 'button'; bStart.id = 'ss-start';
   const bSet = el('button', null, 'Settings'); bSet.type = 'button'; bSet.id = 'ss-settings';
   mp.append(bStart, bSet);
   main.appendChild(mp);
+
+  // Start → choose a boss
+  const choose = el('div', 'scrim'); choose.hidden = true;
+  const cp = el('div', 'panel');
+  cp.appendChild(el('h2', null, 'Choose your foe'));
+  const pickBtns = [];
+  for (const id of Object.keys(BOSSES)) {
+    const k = BOSSES[id];
+    const b = el('button', 'foe'); b.type = 'button'; b.id = 'ss-foe-' + id;
+    b.append(el('span', 'foe-name', k.name), el('span', 'foe-blurb', k.blurb));
+    cp.appendChild(b);
+    pickBtns.push([b, id]);
+  }
+  const bBack2 = el('button', null, 'Back'); bBack2.type = 'button';
+  cp.appendChild(bBack2);
+  choose.appendChild(cp);
 
   const pause = el('div', 'scrim'); pause.hidden = true;
   const pp = el('div', 'panel');
@@ -186,13 +206,15 @@ function buildUI() {
   const pauseBtn = el('button', null, 'II'); pauseBtn.id = 'ss-pause'; pauseBtn.type = 'button';
   pauseBtn.setAttribute('aria-label', 'Pause'); pauseBtn.hidden = true;
 
-  root.append(main, pause, settings, pauseBtn);
+  root.append(main, choose, pause, settings, pauseBtn);
 
   let settingsFrom = 'main';
   const openSettings = from => { settingsFrom = from; main.hidden = true; pause.hidden = true; settings.hidden = false; refreshSliders(); setStatus(); bBack.focus(); };
   const closeSettings = () => { settings.hidden = true; (settingsFrom === 'main' ? main : pause).hidden = false; };
   const click = (b, fn) => b.addEventListener('click', () => { audioInit(); sUI(); fn(); });
-  click(bStart, () => startGame());
+  click(bStart, () => { main.hidden = true; choose.hidden = false; pickBtns[0][0].focus(); });
+  for (const [b, id] of pickBtns) click(b, () => { BK = BOSSES[id]; choose.hidden = true; startGame(); });
+  click(bBack2, () => { choose.hidden = true; main.hidden = false; bStart.focus(); });
   click(bSet, () => openSettings('main'));
   click(bRes, () => resumeGame());
   click(bSet2, () => openSettings('pause'));
@@ -205,7 +227,7 @@ function buildUI() {
     refreshSliders(); applyLive(); scheduleSave();
   });
   click(pauseBtn, () => pauseGame());
-  return { root, main, pause, settings, pauseBtn, status, rows, bStart };
+  return { root, main, choose, pause, settings, pauseBtn, status, rows, bStart };
 }
 const ui = buildUI();
 function refreshSliders() {
@@ -223,7 +245,7 @@ function setStatus() {
   else msg = 'Changes save on this device. Page storage is not available here, so use this device when you ask Claude to apply your tuning.';
   ui.status.textContent = msg;
 }
-function startGame() { reset(); mode = 'play'; ui.main.hidden = true; ui.pauseBtn.hidden = false; try { cvs.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+function startGame() { reset(); mode = 'play'; ui.main.hidden = true; ui.choose.hidden = true; ui.pauseBtn.hidden = false; try { cvs.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
 function pauseGame() { if (mode !== 'play') return; mode = 'pause'; releaseAll(); ui.pause.hidden = false; ui.pauseBtn.hidden = true; }
 function resumeGame() { mode = 'play'; releaseAll(); ui.pause.hidden = true; ui.settings.hidden = true; ui.pauseBtn.hidden = false; try { cvs.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
-function toMenu() { mode = 'menu'; releaseAll(); reset(); ui.pause.hidden = true; ui.settings.hidden = true; ui.main.hidden = false; ui.pauseBtn.hidden = true; }
+function toMenu() { mode = 'menu'; releaseAll(); reset(); ui.pause.hidden = true; ui.settings.hidden = true; ui.choose.hidden = true; ui.main.hidden = false; ui.pauseBtn.hidden = true; }

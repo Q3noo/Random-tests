@@ -20,17 +20,17 @@ function reset() {
     blockPressAt: -9, counterUntil: -9, critX0: 0, critX1: 0,
   });
   Object.assign(B, {
-    x: 1000, y: 0, vx: 0, face: -1, maxHp: T.b.hp, hp: T.b.hp, hpGhost: T.b.hp, ghostT: 0,
-    poise: T.b.poise, poiseT: 0,
-    state: 'loco', def: null, t: 0, start: null, pose: copyPose(BB, {}), moveBlend: 0, walkP: 0,
-    flash: 0, wait: 1.6, cd: { leap: 3, stomp: 0, quake: 2 }, last: [], queue: [], phase2: false, pending2: false,
+    x: BK.startX, y: 0, vx: 0, face: -1, maxHp: BK.hp(), hp: BK.hp(), hpGhost: BK.hp(), ghostT: 0,
+    poise: BK.poise(), poiseT: 0, glueT: 0,
+    state: 'loco', def: null, t: 0, start: null, pose: copyPose(BK.base, {}), moveBlend: 0, walkP: 0,
+    flash: 0, wait: 1.6, cd: BK.cd(), last: [], queue: [], phase2: false, pending2: false,
     behindT: 0, hitMask: 0, adaptD: null, leapFrom: 0, leapTo: 0, swingId: 0, punishT: 0, stoppedSwing: -1,
   });
   newMotion(P);
   newMotion(B);
   P.S = solve(PR, P.pose, P.x, P.y, P.face);
-  B.S = solve(BR, B.pose, B.x, B.y, B.face);
-  B.caps = bossCaps(B.S);
+  B.S = solve(BK.R, B.pose, B.x, B.y, B.face);
+  B.caps = BK.caps(B.S);
   waves = []; parts = []; trails.p.length = 0; trails.b.length = 0;
   clock = 0; hitStop = 0; shakeMag = 0; timeScale = 1; slowT = 0;
   ended = null; endTimer = null;
