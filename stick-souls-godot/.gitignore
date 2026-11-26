@@ -1,0 +1,4 @@
+# Godot 4 cache and imports (rebuilt when the project is opened)
+.godot/
+/android/
+*.tmp
